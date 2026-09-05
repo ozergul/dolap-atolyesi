@@ -3,7 +3,7 @@
 Telefon tarayıcısında çalışan 2D dolap tasarım aracı. Tek dosya, bağımlılık yok,
 sunucu yok — çizim `<canvas>`, tasarım tarayıcıda (`localStorage`) saklanıyor.
 
-**→ https://ozergul.github.io/dolap-atolyesi/**
+**→ https://ozergul.dev/dolap-atolyesi/**
 
 ## Ne yapıyor
 
