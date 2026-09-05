@@ -427,13 +427,26 @@ function rod(y){ return {k:'rod', y:y}; }
 function drawer(y,h){ return {k:'drawer', y:y, h:h||200}; }
 
 var TEMPLATES = [
-  { name:'Klasik gardırop', note:'2000 × 2400 × 600',
+  /* VARSAYILAN: 5 kapaklı gardırop. 5 kapak 2000 mm'ye sığmıyor — bölme başına
+     378 mm kalıyor ve o ende askı borusuna kıyafet giremiyor. 2500 mm'de bölme
+     ~478 mm, kapak ~496 mm: piyasadaki 5 kapaklı gardırop ölçüsü. */
+  { name:'5 kapaklı gardırop', note:'2500 × 2400 × 600',
+    make:function(){ var s=Object.assign({},DEF);
+      s.W=2500;s.H=2400;s.D=600;
+      s.cols=[
+        col(478,[rod(1600),shelf(1700)],'single'),                                  // uzun askı (palto)
+        col(478,[shelf(400),shelf(800),shelf(1200),shelf(1600),shelf(2000)],'single'),
+        col(478,[drawer(0,220),drawer(230,220),shelf(560),shelf(1000),shelf(1450),shelf(1900)],'single'),
+        col(478,[rod(1050),shelf(1150),rod(2200)],'single'),                        // çift sıra askı
+        col(480,[rod(1600),shelf(1700)],'single')
+      ]; return s; } },
+  { name:'3 kapaklı gardırop', note:'2000 × 2400 × 600',
     make:function(){ var s=Object.assign({},DEF);
       s.W=2000;s.H=2400;s.D=600;
       s.cols=[
-        col(640,[shelf(1750),rod(1700)],'single'),
+        col(640,[rod(1700),shelf(1800)],'single'),
         col(640,[drawer(0,220),drawer(230,220),shelf(500),shelf(900),shelf(1300),shelf(1750)],'single'),
-        col(640,[shelf(1750),rod(1700)],'single')
+        col(640,[rod(1700),shelf(1800)],'single')
       ]; return s; } },
   { name:'Sürgülü ikili', note:'1800 × 2200 × 650',
     make:function(){ var s=Object.assign({},DEF);
@@ -471,7 +484,7 @@ var S = null;
 var sel = null;          // {kind:'col'|'item'|'divider', i, k}
 var undoStack = [], redoStack = [];
 
-var KEY = 'dolap-atolyesi-v2';
+var KEY = 'dolap-atolyesi-v3';
 
 function load(){
   try{
