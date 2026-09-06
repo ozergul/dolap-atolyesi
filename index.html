@@ -370,6 +370,18 @@ textarea.copyout{
   <div class="sheetbody"><div class="warnlist" id="warnBody"></div><p class="note">Ölçüler 18 mm melamin gövde ve standart askı yüksekliklerine göre kontrol edilir. Uyarı bir hata değil, ölçmen gereken yerdir.</p></div>
 </div>
 
+<div class="sheet" id="shRnd">
+  <div class="grabber"></div>
+  <div class="sheethead"><h3>Rastgele üret</h3><button class="x" data-close aria-label="Kapat"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="sheetbody">
+    <div class="seclabel" style="padding-top:6px">Kime göre</div>
+    <div class="row scroll" id="ageRow" style="padding-top:4px"></div>
+    <p class="note" id="ageNote"></p>
+    <div class="field"><label>Ölçüleri de değiştir<small>Kapalıysa gövde ölçüsü korunur, yalnız içi yeniden kurulur</small></label><div class="toggle on" id="rndSize"></div></div>
+  </div>
+  <div class="sheetfoot"><button class="btn" data-close>Kapat</button><button class="btn primary" id="bRoll">Üret</button></div>
+</div>
+
 <div class="sheet" id="shTpl">
   <div class="grabber"></div>
   <div class="sheethead"><h3>Şablonlar</h3><button class="x" data-close aria-label="Kapat"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
@@ -417,11 +429,11 @@ var DEF = {
   W:2000, H:2400, D:600,
   t:18, back:8, plinth:80, setback:20,
   sheetW:2100, sheetH:2800, sheetPrice:2400, bandPrice:12,
-  showDoors:false, showFigure:true, snap:10,
+  showDoors:false, showFigure:true, snap:10, age:null,   // null = yetişkin
   cols:[]
 };
 
-function col(w, items, door){ return {w:w, items:items||[], door:door||'double'}; }
+function col(w, items, door, glass){ return {w:w, items:items||[], door:door||'double', glass:!!glass}; }
 function shelf(y){ return {k:'shelf', y:y}; }
 function rod(y){ return {k:'rod', y:y}; }
 function drawer(y,h){ return {k:'drawer', y:y, h:h||200}; }
@@ -469,7 +481,7 @@ var TEMPLATES = [
       return s; } },
   { name:'Çocuk odası', note:'1400 × 1800 × 550',
     make:function(){ var s=Object.assign({},DEF);
-      s.W=1400;s.H=1800;s.D=550;
+      s.W=1400;s.H=1800;s.D=550;s.age=8;
       s.cols=[
         col(646,[rod(1100),shelf(1150),shelf(1450)],'single'),
         col(646,[drawer(0,240),drawer(250,240),shelf(560),shelf(900),shelf(1250),shelf(1500)],'single')
@@ -479,6 +491,15 @@ var TEMPLATES = [
       s.W=1600;s.H=2200;s.D=600;
       s.cols=[ col(764,[],'single'), col(764,[],'single') ]; return s; } }
 ];
+
+/* Yaşa göre ortalama boy (cm). Kaynak: büyüme eğrilerinin ortancası; tek amacı
+   ERİŞİM yüksekliğini türetmek, tıbbi bir iddia değil. */
+var AGE_H = {5:110,6:116,7:122,8:128,9:134,10:140,11:146,12:152,13:158,14:163,15:168,16:171,17:174,18:176};
+/* Kolu kaldırıp askıya uzanabildiği yükseklik ≈ boy × 1.15. Bunun ALTI çocuğun
+   kendi alanı (askı, çekmece, günlük raf), ÜSTÜ mevsimlik saklama. */
+function reachOf(age){ return age ? Math.round(AGE_H[age]*11.5/10)*10 : 0; }
+function coatLen(age){ return age ? Math.round(AGE_H[age]*5.5/10)*10 : 1400; }  // manto/elbise
+function shirtLen(age){ return age ? Math.round(AGE_H[age]*4.2/10)*10 : 1000; } // gömlek/pantolon
 
 var S = null;
 var sel = null;          // {kind:'col'|'item'|'divider', i, k}
@@ -535,6 +556,7 @@ function normalize(){
   S.D = clamp(Math.round(S.D), 200, 900);
   S.H = clamp(Math.round(S.H), 600, 3000);
   if(!S.cols.length) S.cols = [col(S.W - 2*S.t, [])];
+  for(var g=0; g<S.cols.length; g++) if(S.cols[g].glass === undefined) S.cols[g].glass = false;
   // sütun genişliklerini toplam genişliğe oturt
   var target = innerW();
   var sum = sumCols();
@@ -728,6 +750,7 @@ function draw(){
   }
 
   if(S.showDoors) drawDoors();
+  drawReach();
   if(S.showFigure) drawFigure();
   drawDims();
 }
@@ -791,17 +814,35 @@ function drawDoors(){
     for(var l=0;l<leaves;l++){
       var lw = w/leaves, lx = x0 + l*lw;
       var px = X(lx)+1, py = Y(ph+bh)+1, pw = lw*view.s-2, phh = bh*view.s-2;
-      var g = ctx.createLinearGradient(px,py,px+pw,py+phh);
-      g.addColorStop(0, CS.wood); g.addColorStop(.55, CS.wood); g.addColorStop(1, CS['wood-2']);
-      ctx.fillStyle = g; ctx.fillRect(px,py,pw,phh);
-      if(c.door==='sliding' && l===1){ ctx.fillStyle='rgba(0,0,0,.10)'; ctx.fillRect(px,py,pw,phh); }
+      if(c.glass){
+        /* Camda saydamlık DOĞRU olan şey: kapak kapalıyken de içi görünüyor,
+           ahşap kanatta aynı saydamlık hayalet gibi okunuyordu. */
+        var fw = Math.max(1.5, 40*view.s);                    // 40 mm alüminyum profil
+        ctx.fillStyle = CS['wood-edge']; ctx.fillRect(px,py,pw,phh);
+        var gx = px+fw, gy = py+fw, gw = Math.max(0,pw-2*fw), gh = Math.max(0,phh-2*fw);
+        ctx.fillStyle = 'rgba(178,206,208,.20)'; ctx.fillRect(gx,gy,gw,gh);
+        ctx.save();                                            // yansıma şeridi
+        ctx.beginPath(); ctx.rect(gx,gy,gw,gh); ctx.clip();
+        ctx.strokeStyle = 'rgba(255,255,255,.30)';
+        ctx.lineWidth = Math.max(3, gw*0.10);
+        ctx.beginPath(); ctx.moveTo(gx+gw*0.12, gy+gh); ctx.lineTo(gx+gw*0.62, gy); ctx.stroke();
+        ctx.lineWidth = Math.max(1.5, gw*0.045);
+        ctx.beginPath(); ctx.moveTo(gx+gw*0.42, gy+gh); ctx.lineTo(gx+gw*0.92, gy); ctx.stroke();
+        ctx.restore();
+        ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = 1; ctx.strokeRect(gx+.5,gy+.5,Math.max(0,gw-1),Math.max(0,gh-1));
+      } else {
+        var g = ctx.createLinearGradient(px,py,px+pw,py+phh);
+        g.addColorStop(0, CS.wood); g.addColorStop(.55, CS.wood); g.addColorStop(1, CS['wood-2']);
+        ctx.fillStyle = g; ctx.fillRect(px,py,pw,phh);
+        if(c.door==='sliding' && l===1){ ctx.fillStyle='rgba(0,0,0,.10)'; ctx.fillRect(px,py,pw,phh); }
+      }
       ctx.strokeStyle = CS['wood-edge']; ctx.lineWidth = 1.2; ctx.strokeRect(px+.5,py+.5,pw-1,phh-1);
       // kulp
       ctx.fillStyle = 'rgba(120,128,132,.95)';
       var hx = c.door==='sliding' ? (l===0? px+pw-16 : px+10) : (leaves===2 ? (l===0? px+pw-14 : px+8) : px+pw-16);
       ctx.fillRect(hx-2, py+phh*0.46, 4, Math.max(10, 180*view.s));
       // menteşe yönü
-      if(c.door!=='sliding'){
+      if(c.door!=='sliding' && !c.glass){
         ctx.strokeStyle='rgba(0,0,0,.20)'; ctx.setLineDash([5,5]); ctx.lineWidth=1;
         ctx.beginPath();
         if(leaves===2 ? l===0 : true){ ctx.moveTo(px, py); ctx.lineTo(px+pw, py+phh/2); ctx.lineTo(px, py+phh); }
@@ -814,16 +855,18 @@ function drawDoors(){
 }
 
 function drawFigure(){
-  var x = S.W + 340, h = 1700, u = h/100;
+  var h = S.age ? AGE_H[S.age]*10 : 1700;
+  var x = S.W + 340, u = h/100;
+  var hs = S.age ? (S.age<=8 ? 1.22 : (S.age<=12 ? 1.10 : 1)) : 1;   // çocukta baş oransal olarak büyük
   ctx.save();
   ctx.globalAlpha = .28;
   ctx.fillStyle = CS['ink-3'];
   // baş
-  ctx.beginPath(); ctx.arc(X(x), Y(h - 6*u), 6*u*view.s, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(X(x), Y(h - 6*u*hs), 6*u*hs*view.s, 0, Math.PI*2); ctx.fill();
   // gövde
   ctx.beginPath();
-  ctx.moveTo(X(x-4*u), Y(h-13*u));
-  ctx.lineTo(X(x-11*u), Y(h-22*u));
+  ctx.moveTo(X(x-4*u), Y(h-13*u*hs));
+  ctx.lineTo(X(x-11*u), Y(h-22*u*hs));
   ctx.lineTo(X(x-9.5*u), Y(h-46*u));
   ctx.lineTo(X(x-5*u), Y(h-46*u));
   ctx.lineTo(X(x-5.5*u), Y(h-98*u));
@@ -833,15 +876,34 @@ function drawFigure(){
   ctx.lineTo(X(x+5.5*u), Y(h-98*u));
   ctx.lineTo(X(x+5*u), Y(h-46*u));
   ctx.lineTo(X(x+9.5*u), Y(h-46*u));
-  ctx.lineTo(X(x+11*u), Y(h-22*u));
-  ctx.lineTo(X(x+4*u), Y(h-13*u));
+  ctx.lineTo(X(x+11*u), Y(h-22*u*hs));
+  ctx.lineTo(X(x+4*u), Y(h-13*u*hs));
   ctx.closePath(); ctx.fill();
   ctx.globalAlpha = 1;
   ctx.strokeStyle = CS['ink-3']; ctx.setLineDash([3,4]); ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(X(x-16*u), Y(h)+.5); ctx.lineTo(X(x+16*u), Y(h)+.5); ctx.stroke();
   ctx.setLineDash([]);
   ctx.fillStyle = CS['ink-3']; ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.textAlign='center';
-  ctx.fillText('1700', X(x), Y(h)-6);
+  ctx.fillText(String(h), X(x), Y(h)-6);
+  ctx.restore();
+}
+
+/* Erişim çizgisi: çocuk dolabında ASIL tasarım kararı bu. Altı çocuğun kendi
+   alanı, üstü saklama — çizilmezse kural görünmez kalıyor. */
+function drawReach(){
+  if(!S.age) return;
+  var y = reachOf(S.age);
+  if(y <= 0 || y >= S.H) return;
+  ctx.save();
+  ctx.strokeStyle = CS.accent; ctx.setLineDash([7,5]); ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(X(-30), Y(y)); ctx.lineTo(X(S.W+30), Y(y)); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = '600 10.5px "IBM Plex Mono", monospace';
+  var label = S.age + ' yaş erişimi ' + y;
+  var w = ctx.measureText(label).width;
+  ctx.fillStyle = CS.accent; rr(X(0)+8, Y(y)-20, w+14, 17, 8); ctx.fill();
+  ctx.fillStyle = CS['accent-soft']; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, X(0)+15, Y(y)-11);
   ctx.restore();
 }
 
@@ -955,7 +1017,8 @@ function localPt(e){ var r = cv.getBoundingClientRect(); return {x:e.clientX-r.l
 var hintEl = document.getElementById('hint');
 cv.addEventListener('pointerdown', function(e){
   if(hintEl){ hintEl.style.transition='opacity .4s'; hintEl.style.opacity='0'; }
-  cv.setPointerCapture(e.pointerId);
+  // yakalama başarısız olursa (pointer aradan kalkmışsa) tüm etkileşim ölürdü
+  try{ cv.setPointerCapture(e.pointerId); }catch(err){}
   ptrs.set(e.pointerId, localPt(e));
   if(ptrs.size === 2){
     var a = Array.from(ptrs.values());
@@ -1121,7 +1184,9 @@ var IC = {
   tpl:'<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="8" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
   set:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/></svg>',
   eq:'<svg viewBox="0 0 24 24"><path d="M5 9h14M5 15h14"/></svg>',
-  dup:'<svg viewBox="0 0 24 24"><rect x="8" y="3" width="13" height="13" rx="2"/><path d="M16 20H5a2 2 0 0 1-2-2V7"/></svg>'
+  dup:'<svg viewBox="0 0 24 24"><rect x="8" y="3" width="13" height="13" rx="2"/><path d="M16 20H5a2 2 0 0 1-2-2V7"/></svg>',
+  glass:'<svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M7.5 18 15 6"/><path d="M12 18l4.5-7"/></svg>',
+  dice:'<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3.5"/><circle cx="8.4" cy="8.4" r="1.25" fill="currentColor" stroke="none"/><circle cx="15.6" cy="8.4" r="1.25" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.25" fill="currentColor" stroke="none"/><circle cx="8.4" cy="15.6" r="1.25" fill="currentColor" stroke="none"/><circle cx="15.6" cy="15.6" r="1.25" fill="currentColor" stroke="none"/></svg>'
 };
 var DOORNAME = {none:'Kapaksız', single:'Tek kapak', double:'Çift kapak', sliding:'Sürgülü'};
 var ITEMNAME = {shelf:'Raf', rod:'Askı borusu', drawer:'Çekmece'};
@@ -1130,11 +1195,12 @@ function renderDock(){
   row1.innerHTML=''; row2.innerHTML='';
   if(!sel){
     dockTitle.textContent = 'Dolap';
-    dockSub.innerHTML = '<span class="mono">'+S.cols.length+' bölme · '+panelCount()+' parça</span>';
+    dockSub.innerHTML = '<span class="mono">'+(S.age ? S.age+' yaş · ' : '')+S.cols.length+' bölme · '+panelCount()+' parça</span>';
     row1.appendChild(stepper('Genişlik', function(){return S.W;}, setW, 10, 300, 6000));
     row1.appendChild(stepper('Yükseklik', function(){return S.H;}, function(v){S.H=v;}, 10, 600, 3000));
     row1.appendChild(stepper('Derinlik', function(){return S.D;}, function(v){S.D=v;}, 10, 200, 900));
-    row2.appendChild(chip('Bölme ekle', IC.add, 'primary', function(){ commit(addCol); }));
+    row2.appendChild(chip('Rastgele', IC.dice, 'primary', openRnd));
+    row2.appendChild(chip('Bölme ekle', IC.add, null, function(){ commit(addCol); }));
     row2.appendChild(chip('Kesim listesi', IC.list, null, function(){ openCut(); }));
     row2.appendChild(chip('Şablonlar', IC.tpl, null, function(){ openTpl(); }));
     row2.appendChild(chip('Ayarlar', IC.set, null, function(){ openSet(); }));
@@ -1177,7 +1243,12 @@ function renderDock(){
     row2.appendChild(chip(DOORNAME[c.door], IC.door, 'sel', function(){ commit(function(){
       var order = ['none','single','double','sliding'];
       S.cols[sel.i].door = order[(order.indexOf(S.cols[sel.i].door)+1)%order.length];
+      if(S.cols[sel.i].door === 'none') S.cols[sel.i].glass = false;
     }); }));
+    if(c.door !== 'none')
+      row2.appendChild(chip('Cam kapak', IC.glass, c.glass ? 'sel' : null, function(){
+        commit(function(){ S.cols[sel.i].glass = !S.cols[sel.i].glass; });
+      }));
     row2.appendChild(chip('Rafları eşit dağıt', IC.eq, null, function(){ commit(function(){ spread(sel.i); }); }));
     row2.appendChild(chip('İkiye böl', IC.split, null, function(){ commit(function(){ splitCol(sel.i); }); }));
     row2.appendChild(chip('Kopyala', IC.dup, null, function(){ commit(function(){ dupCol(sel.i); }); }));
@@ -1203,6 +1274,106 @@ function renderDock(){
   }); }));
   row2.appendChild(chip('Sil', IC.trash, 'danger', function(){ commit(function(){ cc.items.splice(sel.k,1); sel={kind:'col', i:sel.i}; }); }));
   row2.appendChild(chip('Bölmeyi seç', null, null, function(){ sel={kind:'col', i:sel.i}; render(); }));
+}
+
+/* ---- rastgele üretici ---- */
+function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
+function rint(a,b){ return a + Math.floor(Math.random()*(b-a+1)); }
+function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var x=a[i]; a[i]=a[j]; a[j]=x; } return a; }
+
+var SIZES = {
+  a:    {W:[900,1000,1200,1400],           H:[1600,1700,1800],      D:[500,550], p:[60,80]},
+  b:    {W:[1200,1400,1600,1800],          H:[1800,2000,2100],      D:[550,600], p:[70,80]},
+  c:    {W:[1400,1600,1800,2000,2200],     H:[2000,2200,2400],      D:[550,600], p:[80,100]},
+  adult:{W:[1600,1800,2000,2200,2500,2800],H:[2200,2400],           D:[600,650], p:[80,100]}
+};
+function bandOf(age){ return !age ? 'adult' : (age<=8 ? 'a' : (age<=12 ? 'b' : 'c')); }
+
+function randomDesign(age, keepSize){
+  var s = Object.assign({}, DEF);
+  // kullanıcının ayarları rastgeleye kurban gitmiyor
+  ['t','back','setback','sheetW','sheetH','sheetPrice','bandPrice','showDoors','showFigure','snap']
+    .forEach(function(k){ s[k] = S[k]; });
+  s.age = age || null;
+  if(keepSize){ s.W=S.W; s.H=S.H; s.D=S.D; s.plinth=S.plinth; }
+  else { var SZ = SIZES[bandOf(age)]; s.W=pick(SZ.W); s.H=pick(SZ.H); s.D=pick(SZ.D); s.plinth=pick(SZ.p); }
+
+  var t = s.t;
+  var maxBay = age ? 500 : 560;
+  var n = clamp(Math.round((s.W - 2*t) / maxBay), 1, 5);
+  var bay = Math.floor((s.W - 2*t - (n-1)*t) / n);
+  var ih = s.H - s.plinth - 2*t;
+  var fy = s.plinth + t;
+  var reach = reachOf(age);
+  // erişim çizgisinin İÇ kottaki karşılığı
+  var reachIn = reach ? clamp(reach - fy, 500, ih - 150) : 0;
+  var coat = coatLen(age), shirt = shirtLen(age);
+
+  // hangi bölme ne işe yarayacak
+  var must = [];
+  if(ih > coat + 150) must.push('aski');
+  if(n >= 2) must.push('cekmece');
+  var opts = ['raflar'];
+  if(age) opts.push('kitaplik');
+  if(ih > 2*shirt + 400) opts.push('ciftaski');
+  if(ih > coat + 150) opts.push('aski');
+  var roles = must.slice();
+  while(roles.length < n) roles.push(pick(opts));
+  roles = shuffle(roles).slice(0, n);
+
+  var openBay = (age && age <= 10 && Math.random() < 0.3) ? rint(0, n-1) : -1; // çocukta bir göz kapaksız
+  var slide = (!age && s.W >= 2200 && Math.random() < 0.4);
+
+  s.cols = [];
+  for(var i=0;i<n;i++){
+    var items = buildRole(roles[i], ih, reachIn, coat, shirt, age, t);
+    // erişim çizgisine saklama rafı — üstünü ayıran şey bu
+    if(reachIn && ih - reachIn > 300){
+      var clash = false;
+      for(var q=0;q<items.length;q++){ if(Math.abs(items[q].y - reachIn) < 140) clash = true; }
+      if(!clash) items.push(shelf(reachIn));
+    }
+    items.sort(function(a,b){ return a.y-b.y; });
+    var door = (i===openBay) ? 'none' : (slide ? 'sliding' : (n===1 && s.W>700 ? 'double' : 'single'));
+    s.cols.push(col(i===n-1 ? (s.W - 2*t - (n-1)*t - bay*(n-1)) : bay, items, door));
+  }
+  return s;
+}
+
+function buildRole(role, ih, reachIn, coat, shirt, age, t){
+  var it = [], ceil = reachIn || ih;
+  if(role === 'aski'){
+    var rodY = reachIn ? Math.min(reachIn - 70, ih - 60) : Math.min(ih - 80, 1700);
+    if(rodY < coat + 40) rodY = Math.min(ih - 60, coat + 60);      // kıyafet yere değmesin
+    it.push(rod(Math.round(rodY)));
+    if(ih - rodY > 260) it.push(shelf(Math.round(rodY + 110)));
+  } else if(role === 'ciftaski'){
+    var r1 = shirt + 60;
+    it.push(rod(r1));
+    it.push(shelf(r1 + 90));
+    var r2 = r1 + 90 + t + shirt + 70;
+    if(r2 + 60 <= ih) it.push(rod(Math.round(r2)));
+    else if(ih - (r1+90+t) > 350) it.push(shelf(Math.round((r1+90+t+ih)/2)));
+  } else if(role === 'cekmece'){
+    var dn = (age && age <= 8) ? 3 : rint(2,4);
+    var dh = (age && age <= 8) ? 190 : pick([180,200,220,250]);
+    var y = 0, placed = 0;
+    for(var i=0;i<dn;i++){
+      if(y + dh > Math.min(ih - 320, ceil - 60)) break;
+      it.push(drawer(y, dh)); y += dh + 12; placed++;
+    }
+    var rem = ih - y;
+    var k = clamp(Math.floor(rem/400), 1, 4);
+    for(var j=1;j<=k;j++) it.push(shelf(Math.round(y + rem*j/(k+1))));
+  } else if(role === 'kitaplik'){
+    var gap = 300, k2 = Math.max(1, Math.floor(ceil/gap));
+    for(var m=1;m<=k2;m++) it.push(shelf(m*gap));
+    if(ih - k2*gap > 420) it.push(shelf(Math.round((k2*gap + ih)/2)));
+  } else {
+    var k3 = clamp(Math.round(ih/400), 3, 6);
+    for(var q=1;q<=k3;q++) it.push(shelf(Math.round(ih*q/(k3+1))));
+  }
+  return it;
 }
 
 /* ---- düzenleme işlemleri ---- */
@@ -1312,6 +1483,7 @@ function P(group, name, w, h, qty, th){ return {g:group, n:name, w:Math.round(w)
 
 function cutList(){
   var t=S.t, D=S.D, bh=bodyH(), ih=innerH(), out=[];
+  var hwGlass = null;
   out.push(P('Gövde','Yan panel', bh, D, 2, t));
   out.push(P('Gövde','Alt tabla', S.W-2*t, D, 1, t));
   out.push(P('Gövde','Üst tabla', S.W-2*t, D, 1, t));
@@ -1334,7 +1506,7 @@ function cutList(){
     if(c.door!=='none'){
       var dw = c.w + (i===0?t:t/2) + (i===S.cols.length-1?t:t/2);
       var leaves = c.door==='double' ? 2 : 1;
-      doors.push({w:dw/leaves - 3, h:bh-3, n:leaves, type:c.door});
+      doors.push({w:dw/leaves - 3, h:bh-3, n:leaves, type:c.door, glass:!!c.glass});
     }
   }
   Object.keys(shelfMap).sort(function(a,b){return b-a;}).forEach(function(w){
@@ -1358,18 +1530,28 @@ function cutList(){
     out.push(P('Çekmeceler','Çekmece tabanı', box-2*t, side, d.n, S.back));
   });
   // kapaklar
-  var dr = {};
+  var dr = {}, aluM = 0, glassLeaves = 0;
   doors.forEach(function(d){
-    var key = Math.round(d.w)+'x'+Math.round(d.h)+'-'+d.type;
-    dr[key] = dr[key] || {w:d.w, h:d.h, n:0, type:d.type};
+    var key = Math.round(d.w)+'x'+Math.round(d.h)+'-'+d.type+(d.glass?'-cam':'');
+    dr[key] = dr[key] || {w:d.w, h:d.h, n:0, type:d.type, glass:d.glass};
     dr[key].n += d.n;
   });
   Object.keys(dr).forEach(function(k){
     var d = dr[k];
-    out.push(P('Kapaklar', d.type==='sliding' ? 'Sürgülü kapak' : 'Kapak', d.w, d.h, d.n, t));
+    if(d.glass){
+      /* Cam kanat 18 mm panel DEĞİL: 40 mm alüminyum profil çerçeve + 4 mm cam.
+         Aynı satıra yazılırsa levha metrekaresi ve maliyet şişiyor. */
+      out.push(P('Cam kapak', 'Cam panel (4 mm temperli)', d.w-80, d.h-80, d.n, 4));
+      aluM += 2*(d.w + d.h)/1000*d.n;
+      glassLeaves += d.n;
+    } else {
+      out.push(P('Kapaklar', d.type==='sliding' ? 'Sürgülü kapak' : 'Kapak', d.w, d.h, d.n, t));
+    }
   });
+  if(aluM) hwGlass = {alu:Math.round(aluM*10)/10, leaves:glassLeaves};
   // donatı
   var hw = [];
+  if(typeof hwGlass !== 'undefined' && hwGlass) hw.push({n:'Alüminyum çerçeve profili', d:hwGlass.alu+' m', q:hwGlass.leaves+' kanat'});
   Object.keys(rods).forEach(function(w){
     hw.push({n:'Askı borusu (+ 2 flanş)', d:(+w - 4)+' mm', q:rods[w]});
   });
@@ -1412,15 +1594,17 @@ function totals(cl){
     if(p.n==='Raf') edge = p.w;
     else if(p.n==='Yan panel') edge = p.h;   // dikey ön kenar = yükseklik
     else if(p.n==='Alt tabla' || p.n==='Üst tabla' || p.n==='Dikme') edge = (p.n==='Dikme') ? p.w : p.w;
+    else if(p.n.indexOf('Cam')===0) edge = 0;                 // camda kenar bandı yok, profil var
     else if(p.n.indexOf('Kapak')===0 || p.n==='Sürgülü kapak' || p.n==='Çekmece ön kapak') edge = 2*(p.w+p.h);
     else if(p.n.indexOf('Kaide')===0) edge = p.w;
     band += edge*p.q/1000;
   });
   var main = areaByT[S.t] || 0, backA = areaByT[S.back] || 0;
+  var glassA = areaByT[4] || 0;
   var sheetArea = (S.sheetW/1000)*(S.sheetH/1000);
   var sheets = Math.ceil(main*1.18/sheetArea);
   var cost = sheets*S.sheetPrice + band*S.bandPrice;
-  return {main:main, back:backA, band:band, sheets:sheets, cost:cost};
+  return {main:main, back:backA, band:band, sheets:sheets, cost:cost, glass:glassA};
 }
 
 function fmt(n, d){ return n.toLocaleString('tr-TR', {minimumFractionDigits:d||0, maximumFractionDigits:d||0}); }
@@ -1446,6 +1630,7 @@ function openCut(){
        '<div class="tot"><i>Arkalık</i><b>'+fmt(T.back,2)+'<small>m²</small></b></div>'+
        '<div class="tot"><i>Tahmini plaka</i><b>'+T.sheets+'<small>× '+S.sheetW+'×'+S.sheetH+'</small></b></div>'+
        '<div class="tot"><i>Kenar bandı</i><b>'+fmt(T.band,1)+'<small>m</small></b></div>'+
+       (T.glass ? '<div class="tot"><i>Cam</i><b>'+fmt(T.glass,2)+'<small>m² · 4 mm</small></b></div>' : '')+
        '<div class="tot" style="grid-column:span 2"><i>Kaba malzeme maliyeti</i><b>'+fmt(T.cost)+'<small>₺</small></b></div>'+
        '</div>';
   h += '<p class="note">Kapaklar tam üstten kapaklı ve 3 mm derzli, çekmeceler her yana 13 mm ray paylı hesaplanır. Plaka sayısı %18 fire payıyla kabadır — kesim optimizasyonu değildir. Fiyatları Ayarlar\'dan değiştir.</p>';
@@ -1490,7 +1675,12 @@ function fallbackCopy(txt){
 /* ================= kontrol / uyarılar ================= */
 function warnings(){
   var out = [], ih = innerH();
-  if(S.D < 550) out.push({t:'Derinlik askı için dar', d:'Askılı bölmede omuz genişliği ~500 mm ister; '+S.D+' mm derinlikte kıyafet kapağa değer. 550–600 mm önerilir.', w:true});
+  // Eşikler yaşa göre kayıyor: 8 yaşın gömleği 540 mm, 1000 mm istemek YANLIŞ uyarı olur.
+  var needHang = S.age ? shirtLen(S.age) + 60 : 1000;
+  var longHang = coatLen(S.age);
+  var minDepth = S.age ? (S.age <= 10 ? 450 : 500) : 550;
+  var reach = reachOf(S.age);
+  if(S.D < minDepth) out.push({t:'Derinlik askı için dar', d:'Askılı bölmede omuz genişliği yer ister; '+S.D+' mm derinlikte kıyafet kapağa değer. '+(S.age? S.age+' yaş için en az '+minDepth+' mm' : '550–600 mm')+' önerilir.', w:true});
   for(var i=0;i<S.cols.length;i++){
     var c = S.cols[i], w = Math.round(c.w), n = i+1;
     var maxSpan = S.t >= 25 ? 1000 : (S.t >= 18 ? 800 : 600);
@@ -1504,19 +1694,25 @@ function warnings(){
       var below = 0;
       c.items.forEach(function(o){ if(o===r) return; var e=o.y+itemH(o); if(e <= r.y && e > below) below = e; });
       var hang = r.y - below;
-      if(hang < 900) out.push({t:'Bölme '+n+': askı yüksekliği '+Math.round(hang)+' mm', d:'Gömlek/pantolon için en az 1000 mm, palto için 1400 mm gerekir.', w:true});
+      if(hang < needHang - 100) out.push({t:'Bölme '+n+': askı yüksekliği '+Math.round(hang)+' mm', d:'Gömlek/pantolon için en az '+needHang+' mm, manto için '+longHang+' mm gerekir'+(S.age?' ('+S.age+' yaş ölçüsü)':'')+'.', w:true});
       var above = ih - r.y;
       if(above < 60) out.push({t:'Bölme '+n+': borunun üstü kapalı', d:'Askı kancasının geçmesi için borunun üstünde en az 60 mm boşluk kalmalı.', w:true});
     });
     if(!c.items.length) out.push({t:'Bölme '+n+' boş', d:'İç yüksekliği '+ih+' mm. Raf, askı ya da çekmece ekleyebilirsin.', w:false});
     c.items.forEach(function(o){
-      if(o.k==='drawer' && floorY()+o.y > 1400)
-        out.push({t:'Bölme '+n+': çekmece yüksekte', d:'Yerden '+Math.round(floorY()+o.y)+' mm — göz hizasının üstündeki çekmecenin içi görünmez.', w:true});
+      var drawerMax = reach ? reach - 200 : 1400;
+      if(o.k==='drawer' && floorY()+o.y > drawerMax)
+        out.push({t:'Bölme '+n+': çekmece yüksekte', d:'Yerden '+Math.round(floorY()+o.y)+' mm — '+(S.age ? S.age+' yaşın erişimi '+reach+' mm, bu çekmeceyi kendi açamaz.' : 'göz hizasının üstündeki çekmecenin içi görünmez.'), w:true});
     });
   }
   var topShelf = 0;
   S.cols.forEach(function(c){ c.items.forEach(function(o){ if(o.k==='shelf' && floorY()+o.y > topShelf) topShelf = floorY()+o.y; }); });
-  if(topShelf > 1900) out.push({t:'En üst raf '+Math.round(topShelf)+' mm', d:'1900 mm üstü raflara taburesiz uzanılmaz; mevsimlik saklama için uygun.', w:false});
+  var anyGlass = false;
+  S.cols.forEach(function(c){ if(c.glass && c.door!=='none') anyGlass = true; });
+  if(anyGlass && S.age && S.age <= 12)
+    out.push({t:'Çocuk dolabında cam kapak', d:'Temperli cam iste ve profile güvenlik filmi çektir; '+S.age+' yaş için kırılan düz cam gerçek bir risk. Alternatif: pleksi (akrilik) panel, aynı profile giriyor.', w:true});
+  var shelfMax = reach || 1900;
+  if(topShelf > shelfMax) out.push({t:'En üst raf '+Math.round(topShelf)+' mm', d:(reach ? S.age+' yaşın erişimi '+reach+' mm — bu rafa kendi uzanamaz, mevsimlik saklama için uygun.' : '1900 mm üstü raflara taburesiz uzanılmaz; mevsimlik saklama için uygun.'), w:false});
   if(S.H > 2600) out.push({t:'Dolap '+S.H+' mm', d:'Yatık taşınamaz: köşegen tavana takılır. Gövdeyi ikiye bölüp üstüne modül koymayı düşün.', w:true});
   return out;
 }
@@ -1587,6 +1783,42 @@ function thumb(c, st){
     cx += cc.w;
     if(i < st.cols.length-1){ g.fillStyle=CS.wood; g.fillRect(xx(cx), yy(fy+ih), t*s, ih*s); cx += t; }
   }
+}
+
+/* ================= rastgele üret sayfası ================= */
+var rndSizeOn = true;
+function ageLabel(a){ return a ? a+' yaş' : 'Yetişkin'; }
+function ageNoteText(age){
+  if(!age) return 'Yetişkin dolabı: uzun askı 1400 mm, kısa askı 1000 mm, en üst raf mevsimlik saklama. Ölçüler 1600–2800 mm arasından seçiliyor.';
+  var h = AGE_H[age], r = reachOf(age);
+  return age+' yaş ≈ '+h+' cm boy. Uzanabildiği yükseklik ~'+r+' mm: askı borusu, çekmece ve günlük raflar bu çizginin ALTINA kuruluyor, üstü mevsimlik saklamaya kalıyor. Kıyafet boyu ~'+shirtLen(age)+' mm, manto ~'+coatLen(age)+' mm.';
+}
+function openRnd(){
+  var r = document.getElementById('ageRow');
+  r.innerHTML = '';
+  var ages = [null];
+  for(var a=5;a<=18;a++) ages.push(a);
+  ages.forEach(function(a){
+    var b = chip(ageLabel(a), null, (S.age===a ? 'sel' : null), function(){
+      S.age = a; save();
+      openRnd();                       // seçimi ve açıklamayı tazele
+      draw(); renderDock(); renderWarn();
+    });
+    r.appendChild(b);
+  });
+  document.getElementById('ageNote').textContent = ageNoteText(S.age);
+  var tg = document.getElementById('rndSize');
+  tg.classList.toggle('on', rndSizeOn);
+  tg.onclick = function(){ rndSizeOn = !rndSizeOn; tg.classList.toggle('on', rndSizeOn); };
+  document.getElementById('bRoll').onclick = roll;
+  if(openSheetId() !== 'shRnd') openSheet('shRnd');
+}
+function roll(){
+  var age = S.age;
+  commit(function(){ S = randomDesign(age, !rndSizeOn); sel = null; });
+  view.ready = false; resize();
+  var n = S.cols.length;
+  toast(ageLabel(age) + ' · ' + S.W + ' mm · ' + n + ' bölme');
 }
 
 /* ================= ayarlar ================= */
@@ -1666,7 +1898,7 @@ function updatePad(){
 
 /* ================= alt sayfa yönetimi ================= */
 var scrim = document.getElementById('scrim');
-var SHEETS = ['shCut','shWarn','shTpl','shSet','shCopy','pad'];
+var SHEETS = ['shCut','shWarn','shTpl','shSet','shCopy','shRnd','pad'];
 function openSheetId(){
   for(var i=0;i<SHEETS.length;i++) if(document.getElementById(SHEETS[i]).classList.contains('on')) return SHEETS[i];
   return null;

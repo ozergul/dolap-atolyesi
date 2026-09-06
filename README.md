@@ -16,7 +16,16 @@ sunucu yok — çizim `<canvas>`, tasarım tarayıcıda (`localStorage`) saklan�
 - **Kontrol**: 18 mm'de 800 mm'yi geçen raf açıklığı, 900 mm'yi geçen askı borusu,
   1000 mm'nin altında kalan askı yüksekliği, 550 mm'nin altında derinlik, 1400 mm'nin
   üstünde çekmece, 2600 mm'yi geçen gövde — hepsi anında uyarı olarak çıkıyor.
-- Altı şablon, geri/ileri al, otomatik kayıt, açık + koyu tema.
+- **Rastgele üret**: 5–18 yaş (ya da yetişkin) seç, kullanışlı bir varyant üretsin.
+  Yaş sadece etiket değil — çocuğun **erişim yüksekliği** (boy × 1.15) hesaplanıyor,
+  askı borusu, çekmece ve günlük raflar o çizginin altına kuruluyor, üstü mevsimlik
+  saklamaya kalıyor. Çizimde erişim çizgisi ve o yaşın boyunda siluet görünüyor.
+  Uyarı eşikleri de yaşa göre kayıyor: 8 yaşın gömleği 540 mm, ondan 1000 mm askı
+  yüksekliği istemek yanlış uyarı olurdu.
+- **Cam kapak**: her bölmede ayrı açılıyor. Kesim listesinde 18 mm panel değil,
+  40 mm alüminyum profil (metre) + 4 mm temperli cam olarak çıkıyor; kenar bandına
+  girmiyor. Çocuk dolabında cam seçilirse temperli cam uyarısı düşüyor.
+- Yedi şablon, geri/ileri al, otomatik kayıt, açık + koyu tema.
 
 ## Varsayımlar
 
